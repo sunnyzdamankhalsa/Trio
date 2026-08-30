@@ -36,6 +36,8 @@ final class LiveActivityData: ObservableObject {
     @Published var glucoseFromPersistence: [GlucoseData]?
     /// The current override data (if any).
     @Published var override: OverrideData?
+    /// The current temp target data (if any).
+    @Published var tempTarget: TempTargetData?
     /// The widget items displayed within the live activity.
     @Published var widgetItems: [LiveActivityAttributes.LiveActivityItem]?
 }
@@ -69,9 +71,6 @@ final class LiveActivityData: ObservableObject {
 
     private var data = LiveActivityData()
 
-    /// A Core Data task context.
-    let context = CoreDataStack.shared.newTaskContext()
-
     /// A dispatch queue for handling Core Data change notifications.
     private let queue = DispatchQueue(label: "LiveActivityBridge.queue", qos: .userInitiated)
     private var coreDataPublisher: AnyPublisher<Set<NSManagedObjectID>, Never>?
@@ -82,7 +81,7 @@ final class LiveActivityData: ObservableObject {
     /// - Parameter resolver: The dependency injection resolver.
     init(resolver: Resolver) {
         coreDataPublisher =
-            changedObjectsOnManagedObjectContextDidSavePublisher()
+            CoreDataStack.shared.entityChangePublisher
                 .receive(on: queue)
                 .share()
                 .eraseToAnyPublisher()
@@ -141,6 +140,10 @@ final class LiveActivityData: ObservableObject {
             Task { await self?.loadOverrides() }
         }.store(in: &subscriptions)
 
+        coreDataPublisher?.filteredByEntityName("TempTargetStored").sink { [weak self] _ in
+            Task { await self?.loadTempTarget() }
+        }.store(in: &subscriptions)
+
         coreDataPublisher?.filteredByEntityName("GlucoseStored").sink { [weak self] _ in
             Task { await self?.loadGlucose() }
         }.store(in: &subscriptions)
@@ -179,6 +182,15 @@ final class LiveActivityData: ObservableObject {
         }
     }
 
+    /// Fetches and maps temp target data and updates the live activity content state.
+    private func loadTempTarget() async {
+        do {
+            data.tempTarget = try await fetchAndMapTempTarget()
+        } catch {
+            debug(.default, "[LiveActivityManager] \(DebuggingIdentifiers.failed) failed to fetch and map temp target: \(error)")
+        }
+    }
+
     /// Handles changes to the live activity order.
     ///
     /// Loads widget items from user defaults and triggers an update to the live activity order.
@@ -203,6 +215,7 @@ final class LiveActivityData: ObservableObject {
         Task {
             await self.loadGlucose()
             await self.loadOverrides()
+            await self.loadTempTarget()
             await self.loadDetermination()
             self.loadWidgetItems()
         }
@@ -301,7 +314,16 @@ final class LiveActivityData: ObservableObject {
                                 overrideDate: Date.now,
                                 overrideDuration: 0,
                                 overrideTarget: 0,
-                                widgetItems: []
+                                isTempTargetActive: false,
+                                tempTargetName: "",
+                                tempTargetDate: Date.now,
+                                tempTargetDuration: 0,
+                                tempTargetTarget: 0,
+                                widgetItems: [],
+                                minForecast: [],
+                                maxForecast: [],
+                                forecastLines: [],
+                                forecastDisplayType: ForecastDisplayType.cone.rawValue
                             ),
                             isInitialState: true
                         ),
@@ -399,6 +421,7 @@ final class LiveActivityData: ObservableObject {
             determination: determination,
             iob: data.iob,
             override: data.override,
+            tempTarget: data.tempTarget,
             widgetItems: data.widgetItems
         )
 

@@ -43,12 +43,26 @@ struct LiveActivityAttributes: ActivityAttributes {
         let overrideDate: Date
         let overrideDuration: Decimal
         let overrideTarget: Decimal
+        let isTempTargetActive: Bool
+        let tempTargetName: String
+        let tempTargetDate: Date
+        let tempTargetDuration: Decimal
+        let tempTargetTarget: Decimal
         let widgetItems: [LiveActivityItem]
+        let minForecast: [Int]
+        let maxForecast: [Int]
+        let forecastLines: [ForecastLine]
+        let forecastDisplayType: String
     }
 
     struct ChartItem: Codable, Hashable {
         let value: Decimal
         let date: Date
+    }
+
+    struct ForecastLine: Codable, Hashable {
+        let type: String
+        let values: [Int]
     }
 
     let startDate: Date

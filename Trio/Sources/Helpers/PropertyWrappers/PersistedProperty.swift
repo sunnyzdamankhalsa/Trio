@@ -121,9 +121,16 @@ enum FileProtectionFixer {
     static func fixFlagFileProtectionForPropertyPersistentFlags() {
         let flagFiles = [
             "onboardingCompleted.plist",
-            "diagnosticsSharing.plist",
+            "crashlyticsSharingEnabled.plist",
             "lastCleanupDate.plist",
-            "hasSeenFatProteinOrderChange.plist"
+            "hasSeenFatProteinOrderChange.plist",
+            "telemetrySharingEnabled.plist",
+            "telemetryLastSentAt.plist",
+            "telemetryLastSentSha.plist",
+            "telemetryColdLaunchTimes.plist",
+            "telemetryInstallId.plist",
+            "telemetryAttestForbidden.plist",
+            "telemetryDebugServerURL.plist"
         ]
 
         let fileManager = FileManager.default

@@ -33,14 +33,17 @@ final class BaseTempTargetsStorage: TempTargetsStorage, Injectable {
 
     private let viewContext = CoreDataStack.shared.persistentContainer.viewContext
 
-    private let context: NSManagedObjectContext
+    private let makeContext: () -> NSManagedObjectContext
 
-    init(resolver: Resolver, context: NSManagedObjectContext? = nil) {
-        self.context = context ?? CoreDataStack.shared.newTaskContext()
+    init(resolver: Resolver, contextProvider: (() -> NSManagedObjectContext)? = nil) {
+        makeContext = contextProvider ?? { CoreDataStack.shared.newTaskContext() }
         injectServices(resolver)
     }
 
     func loadLatestTempTargetConfigurations(fetchLimit: Int) async throws -> [NSManagedObjectID] {
+        let context = makeContext()
+        context.name = "loadLatestTempTargetConfigurations"
+
         let results = try await CoreDataStack.shared.fetchEntitiesAsync(
             ofType: TempTargetStored.self,
             onContext: context,
@@ -61,6 +64,9 @@ final class BaseTempTargetsStorage: TempTargetsStorage, Injectable {
 
     /// Returns the NSManagedObjectID of the Temp Target Presets
     func fetchForTempTargetPresets() async throws -> [NSManagedObjectID] {
+        let context = makeContext()
+        context.name = "fetchForTempTargetPresets"
+
         let results = try await CoreDataStack.shared.fetchEntitiesAsync(
             ofType: TempTargetStored.self,
             onContext: context,
@@ -79,6 +85,9 @@ final class BaseTempTargetsStorage: TempTargetsStorage, Injectable {
     }
 
     func fetchScheduledTempTargets() async throws -> [NSManagedObjectID] {
+        let context = makeContext()
+        context.name = "fetchScheduledTempTargets"
+
         let scheduledTempTargets = NSPredicate(format: "date > %@", Date() as NSDate)
 
         let results = try await CoreDataStack.shared.fetchEntitiesAsync(
@@ -99,6 +108,9 @@ final class BaseTempTargetsStorage: TempTargetsStorage, Injectable {
     }
 
     func fetchScheduledTempTarget(for targetDate: Date) async throws -> [NSManagedObjectID] {
+        let context = makeContext()
+        context.name = "fetchScheduledTempTarget"
+
         let predicate = NSPredicate(format: "date == %@", targetDate as NSDate)
 
         let results = try await CoreDataStack.shared.fetchEntitiesAsync(
@@ -120,6 +132,9 @@ final class BaseTempTargetsStorage: TempTargetsStorage, Injectable {
     }
 
     func storeTempTarget(tempTarget: TempTarget) async throws {
+        let context = makeContext()
+        context.name = "storeTempTarget"
+
         var presetCount = -1
         if tempTarget.isPreset == true {
             let presets = try await fetchForTempTargetPresets()
@@ -127,7 +142,7 @@ final class BaseTempTargetsStorage: TempTargetsStorage, Injectable {
         }
 
         try await context.perform {
-            let newTempTarget = TempTargetStored(context: self.context)
+            let newTempTarget = TempTargetStored(context: context)
             newTempTarget.date = tempTarget.createdAt
             newTempTarget.id = UUID()
             newTempTarget.enabled = tempTarget.enabled ?? false
@@ -136,6 +151,7 @@ final class BaseTempTargetsStorage: TempTargetsStorage, Injectable {
             newTempTarget.name = tempTarget.name
             newTempTarget.target = NSDecimalNumber(decimal: tempTarget.targetTop ?? 0)
             newTempTarget.isPreset = tempTarget.isPreset ?? false
+            newTempTarget.enteredBy = tempTarget.enteredBy
 
             // Nullify half basal target to ensure the latest HBT is used via OpenAPS Manager when sending TT data to oref
             newTempTarget.halfBasalTarget = nil
@@ -151,8 +167,8 @@ final class BaseTempTargetsStorage: TempTargetsStorage, Injectable {
             }
 
             do {
-                guard self.context.hasChanges else { return }
-                try self.context.save()
+                guard context.hasChanges else { return }
+                try context.save()
             } catch let error as NSError {
                 debug(.default, "\(DebuggingIdentifiers.failed) Failed to save new temp target with error: \(error.userInfo)")
                 throw error
@@ -182,13 +198,16 @@ final class BaseTempTargetsStorage: TempTargetsStorage, Injectable {
     }
 
     func existsTempTarget(with date: Date) async -> Bool {
-        await context.perform {
+        let context = makeContext()
+        context.name = "existsTempTarget"
+
+        return await context.perform {
             // Fetch all Temp Targets with the given date
             let fetchRequest: NSFetchRequest<TempTargetStored> = TempTargetStored.fetchRequest()
             fetchRequest.predicate = NSPredicate(format: "date == %@", date as NSDate)
 
             do {
-                let results = try self.context.fetch(fetchRequest)
+                let results = try context.fetch(fetchRequest)
                 return !results.isEmpty
             } catch let error as NSError {
                 debugPrint("\(DebuggingIdentifiers.failed) Failed to check for existing Temp Target: \(error)")
@@ -226,22 +245,21 @@ final class BaseTempTargetsStorage: TempTargetsStorage, Injectable {
     }
 
     func deleteTempTargetPreset(_ objectID: NSManagedObjectID) async {
-        let taskContext = context != CoreDataStack.shared.newTaskContext()
-            ? context
-            : CoreDataStack.shared.newTaskContext()
+        let context = makeContext()
+        context.name = "deleteTempTargetPreset"
 
-        await taskContext.perform {
+        await context.perform {
             do {
-                let result = try taskContext.existingObject(with: objectID) as? TempTargetStored
+                let result = try context.existingObject(with: objectID) as? TempTargetStored
                 guard let tempTarget = result else {
                     debug(.default, "\(DebuggingIdentifiers.failed) Temp Target for batch delete not found.")
                     return
                 }
 
-                taskContext.delete(tempTarget)
+                context.delete(tempTarget)
 
-                guard taskContext.hasChanges else { return }
-                try taskContext.save()
+                guard context.hasChanges else { return }
+                try context.save()
             } catch {
                 debug(.default, "\(DebuggingIdentifiers.failed) Failed to delete Temp Target: \(error)")
             }
@@ -271,6 +289,9 @@ final class BaseTempTargetsStorage: TempTargetsStorage, Injectable {
     }
 
     func getTempTargetsNotYetUploadedToNightscout() async throws -> [NightscoutTreatment] {
+        let context = makeContext()
+        context.name = "getTempTargetsNotYetUploadedToNightscout"
+
         let results = try await CoreDataStack.shared.fetchEntitiesAsync(
             ofType: TempTargetStored.self,
             onContext: context,
@@ -293,7 +314,7 @@ final class BaseTempTargetsStorage: TempTargetsStorage, Injectable {
                     rate: nil,
                     eventType: .nsTempTarget,
                     createdAt: tempTarget.date ?? Date(),
-                    enteredBy: TempTarget.local,
+                    enteredBy: tempTarget.enteredBy ?? TempTarget.local,
                     bolus: nil,
                     insulin: nil,
                     notes: tempTarget.name ?? TempTarget.custom,
@@ -308,6 +329,9 @@ final class BaseTempTargetsStorage: TempTargetsStorage, Injectable {
     }
 
     func getTempTargetRunsNotYetUploadedToNightscout() async throws -> [NightscoutTreatment] {
+        let context = makeContext()
+        context.name = "getTempTargetRunsNotYetUploadedToNightscout"
+
         let results = try await CoreDataStack.shared.fetchEntitiesAsync(
             ofType: TempTargetRunStored.self,
             onContext: context,
@@ -336,7 +360,7 @@ final class BaseTempTargetsStorage: TempTargetsStorage, Injectable {
                     rate: nil,
                     eventType: .nsTempTarget,
                     createdAt: (tempTargetRun.startDate ?? tempTargetRun.tempTarget?.date) ?? Date(),
-                    enteredBy: TempTarget.local,
+                    enteredBy: tempTargetRun.tempTarget?.enteredBy ?? TempTarget.local,
                     bolus: nil,
                     insulin: nil,
                     notes: tempTargetRun.tempTarget?.name ?? TempTarget.custom,

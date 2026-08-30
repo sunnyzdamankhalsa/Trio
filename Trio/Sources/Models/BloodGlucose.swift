@@ -1,6 +1,4 @@
 import Foundation
-import HealthKit
-import LoopKit
 
 struct BloodGlucose: JSON, Identifiable, Hashable, Codable {
     enum Direction: String, JSON {
@@ -60,8 +58,10 @@ struct BloodGlucose: JSON, Identifiable, Hashable, Codable {
     }
 
     enum CodingKeys: String, CodingKey {
-        case _id
+        case legacyId = "_id"
+        case id
         case sgv
+        case mbg
         case direction
         case date
         case dateString
@@ -77,7 +77,12 @@ struct BloodGlucose: JSON, Identifiable, Hashable, Codable {
 
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
-        _id = try container.decode(String.self, forKey: ._id)
+
+        let legacyId = try container.decodeIfPresent(String.self, forKey: .legacyId)
+        let explicitId = try container.decodeIfPresent(String.self, forKey: .id)
+
+        self.legacyId = legacyId
+        id = explicitId ?? legacyId ?? UUID().uuidString
 
         sgv = try? container.decodeIfPresent(Int.self, forKey: .sgv)
         if sgv == nil {
@@ -87,10 +92,24 @@ struct BloodGlucose: JSON, Identifiable, Hashable, Codable {
             }
             // If both attempts fail, sgv remains nil
         }
+        mbg = try? container.decodeIfPresent(Int.self, forKey: .mbg)
+        if mbg == nil {
+            // The nightscout API might return a double instead of an int, or the key might be missing
+            if let doubleValue = try? container.decodeIfPresent(Double.self, forKey: .mbg) {
+                mbg = Int(doubleValue)
+            }
+            // If both attempts fail, sgv remains nil
+        }
 
         direction = try container.decodeIfPresent(Direction.self, forKey: .direction)
-        date = try container.decode(Decimal.self, forKey: .date)
         dateString = try container.decode(Date.self, forKey: .dateString)
+
+        do {
+            date = try container.decode(Decimal.self, forKey: .date)
+        } catch {
+            date = Decimal(dateString.timeIntervalSince1970 * 1000).rounded()
+        }
+
         unfiltered = try container.decodeIfPresent(Decimal.self, forKey: .unfiltered)
         filtered = try container.decodeIfPresent(Decimal.self, forKey: .filtered)
         noise = try container.decodeIfPresent(Int.self, forKey: .noise)
@@ -102,8 +121,10 @@ struct BloodGlucose: JSON, Identifiable, Hashable, Codable {
     }
 
     init(
-        _id: String = UUID().uuidString,
+        id: String = UUID().uuidString,
+        legacyId: String? = nil,
         sgv: Int? = nil,
+        mbg: Int? = nil,
         direction: Direction? = nil,
         date: Decimal,
         dateString: Date,
@@ -116,8 +137,10 @@ struct BloodGlucose: JSON, Identifiable, Hashable, Codable {
         sessionStartDate: Date? = nil,
         transmitterID: String? = nil
     ) {
-        self._id = _id
+        self.id = id
+        self.legacyId = legacyId
         self.sgv = sgv
+        self.mbg = mbg
         self.direction = direction
         self.date = date
         self.dateString = dateString
@@ -131,12 +154,10 @@ struct BloodGlucose: JSON, Identifiable, Hashable, Codable {
         self.transmitterID = transmitterID
     }
 
-    var _id: String?
-    var id: String {
-        _id ?? UUID().uuidString
-    }
-
+    let legacyId: String?
+    var id: String
     var sgv: Int?
+    var mbg: Int?
     var direction: Direction?
     let date: Decimal
     let dateString: Date
@@ -150,6 +171,11 @@ struct BloodGlucose: JSON, Identifiable, Hashable, Codable {
     var transmitterID: String? = nil
     var isStateValid: Bool { sgv ?? 0 >= 39 && noise ?? 1 != 4 }
 
+    // TODO: remove this custom Equatable/Hashable. Keying identity on `dateString` is a footgun:
+    // two distinct readings at the same instant collide, and the same reading at different date
+    // precision compares unequal. `id` (the sync identifier) is the natural key. It's currently
+    // safe to leave — nothing live compares `BloodGlucose` via ==/hash (only the unused
+    // `History.Glucose` reaches it) — but it should be removed in its own change.
     static func == (lhs: BloodGlucose, rhs: BloodGlucose) -> Bool {
         lhs.dateString == rhs.dateString
     }
@@ -247,16 +273,4 @@ extension NumberFormatter {
         formatter.maximumFractionDigits = 1
         return formatter
     }()
-}
-
-extension BloodGlucose {
-    func convertStoredGlucoseSample(isManualGlucose: Bool) -> StoredGlucoseSample {
-        StoredGlucoseSample(
-            syncIdentifier: id,
-            startDate: dateString.date,
-            quantity: HKQuantity(unit: .milligramsPerDeciliter, doubleValue: Double(glucose!)),
-            wasUserEntered: isManualGlucose,
-            device: HKDevice.local()
-        )
-    }
 }

@@ -26,8 +26,7 @@ extension Onboarding {
 
         private func updateCurrentChapter() {
             switch currentStep {
-            case .diagnostics,
-                 .nightscout,
+            case .nightscout,
                  .unitSelection:
                 currentChapter = .prepareTrio
             case .basalRates,
@@ -71,9 +70,7 @@ extension Onboarding {
 
         // Next button conditional
         private var shouldDisableNextButton: Bool {
-            (currentStep == .diagnostics && state.diagnosticsSharingOption == .enabled && !state.hasAcceptedPrivacyPolicy)
-                ||
-                (currentStep == .nightscout && didSelectNightscoutSetupOption)
+            (currentStep == .nightscout && didSelectNightscoutSetupOption)
                 ||
                 (currentStep == .nightscout && hasValidNightscoutConnection)
                 ||
@@ -338,8 +335,6 @@ struct OnboardingStepContent: View {
                                 }
                             case .overview:
                                 OverviewStepView()
-                            case .diagnostics:
-                                DiagnosticsStepView(state: state)
                             case .nightscout:
                                 switch currentNightscoutSubstep {
                                 case .setupSelection:
@@ -603,15 +598,9 @@ struct OnboardingNavigationButtons: View {
                 currentStep = previousStep
                 currentSMBSubstep = .enableSMBAlways
 
-                switch state.pumpOptionForOnboardingUnits {
-                case .dana,
-                     .minimed:
-                    currentAutosensSubstep = .rewindResetsAutosens
-                case .medtrum,
-                     .omnipodDash,
-                     .omnipodEros:
-                    currentAutosensSubstep = .autosensMax
-                }
+                currentAutosensSubstep = state.pumpOptionForOnboardingUnits.reportsRewindEvents
+                    ? .rewindResetsAutosens
+                    : .autosensMax
             }
 
         case .targetBehavior:

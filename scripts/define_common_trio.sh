@@ -26,11 +26,9 @@ TRIO_PROJECTS=( \
     loopandlearn:G7SensorKit:main \
     loopandlearn:LibreTransmitter:main \
     loopandlearn:MinimedKit:main \
-    loopandlearn:OmniBLE:dev \
-    loopandlearn:OmniKit:main \
     loopandlearn:RileyLinkKit:dev \
     loopandlearn:TidepoolService:dev \
     loopandlearn:DanaKit:dev \
-    loopandlearn:EversenseKit:dev \
     loopandlearn:MedtrumKit:dev \
+    loopandlearn:EversenseKit:dev \
 )

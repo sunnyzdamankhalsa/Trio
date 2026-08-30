@@ -69,6 +69,7 @@ extension LiveActivityAttributes.ContentState {
         determination: DeterminationData?,
         iob: Decimal?,
         override: OverrideData?,
+        tempTarget: TempTargetData?,
         widgetItems: [LiveActivityAttributes.LiveActivityItem]?
     ) {
         let glucose = bg.glucose
@@ -112,7 +113,21 @@ extension LiveActivityAttributes.ContentState {
             overrideDate: override?.date ?? Date(),
             overrideDuration: override?.duration ?? 0,
             overrideTarget: override?.target ?? 0,
-            widgetItems: widgetItems ?? [] // set empty array here to silence compiler; this can never be nil
+            isTempTargetActive: tempTarget?.isActive ?? false,
+            tempTargetName: tempTarget?.tempTargetName ?? "Temp Target",
+            tempTargetDate: tempTarget?.date ?? Date(),
+            tempTargetDuration: tempTarget?.duration ?? 0,
+            tempTargetTarget: tempTarget?.target ?? 0,
+            widgetItems: widgetItems ?? [], // set empty array here to silence compiler; this can never be nil
+            minForecast: settings.displayGlucoseForecasts && settings.forecastDisplayType == .cone
+                ? (determination?.minForecast ?? []) : [],
+            maxForecast: settings.displayGlucoseForecasts && settings.forecastDisplayType == .cone
+                ? (determination?.maxForecast ?? []) : [],
+            forecastLines: settings.displayGlucoseForecasts && settings.forecastDisplayType == .lines
+                ? (determination?.forecastLines ?? [])
+                .map { LiveActivityAttributes.ForecastLine(type: $0.type, values: $0.values) }
+                : [],
+            forecastDisplayType: settings.forecastDisplayType.rawValue
         )
 
         self.init(

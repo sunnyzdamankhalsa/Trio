@@ -43,6 +43,27 @@ struct WatchConfigAppleWatchView: BaseView {
                 headerText: String(localized: "Apple Watch Configuration")
             )
 
+            SettingInputSection(
+                decimalValue: $decimalPlaceholder,
+                booleanValue: $state.showForecastWatch,
+                shouldDisplayHint: $shouldDisplayHint,
+                selectedVerboseHint: Binding(
+                    get: { selectedVerboseHint },
+                    set: {
+                        selectedVerboseHint = $0.map { AnyView($0) }
+                        hintLabel = String(localized: "Show forecast on Watch")
+                    }
+                ),
+                units: state.units,
+                type: .boolean,
+                label: String(localized: "Show Forecast on Watch"),
+                miniHint: String(localized: "Shows forecast on the Apple Watch"),
+                verboseHint: Text(
+                    "Enable this feature to show the forecast on the Apple Watch"
+                ),
+                headerText: String(localized: "Apple Watch Configuration")
+            )
+
             Section(
                 header: Text("Contact Image"),
                 content: {
@@ -68,6 +89,7 @@ struct WatchConfigAppleWatchView: BaseView {
         }
         .navigationTitle("Apple Watch")
         .navigationBarTitleDisplayMode(.automatic)
+        .settingsHighlightScroll()
         .scrollContentBackground(.hidden)
         .background(appState.trioBackgroundColor(for: colorScheme))
     }

@@ -85,7 +85,6 @@ extension NightscoutAPI {
         }
 
         var request = URLRequest(url: url)
-        request.allowsConstrainedNetworkAccess = false
         request.timeoutInterval = Config.timeout
 
         if let secret = secret {
@@ -138,7 +137,6 @@ extension NightscoutAPI {
         }
 
         var request = URLRequest(url: components.url!)
-        request.allowsConstrainedNetworkAccess = false
         request.timeoutInterval = Config.timeout
 
         if let secret = secret {
@@ -171,7 +169,6 @@ extension NightscoutAPI {
         ]
 
         var request = URLRequest(url: components.url!)
-        request.allowsConstrainedNetworkAccess = false
         request.timeoutInterval = Config.timeout
         request.httpMethod = "DELETE"
 
@@ -188,14 +185,21 @@ extension NightscoutAPI {
         return
     }
 
-    func deleteManualGlucose(withId id: String) async throws {
+    func deleteGlucose(withId id: String, withDate date: Date) async throws {
         var components = URLComponents()
         components.scheme = url.scheme
         components.host = url.host
         components.port = url.port
-        components.path = Config.treatmentsPath
+        components.path = Config.uploadEntriesPath
         components.queryItems = [
-            URLQueryItem(name: "find[id][$eq]", value: id)
+            URLQueryItem(
+                name: "find[$or][0][id][$eq]",
+                value: id
+            ),
+            URLQueryItem(
+                name: "find[$or][1][dateString][$eq]",
+                value: Formatter.iso8601withFractionalSeconds.string(from: date)
+            )
         ]
 
         guard let url = components.url else {
@@ -203,7 +207,6 @@ extension NightscoutAPI {
         }
 
         var request = URLRequest(url: url)
-        request.allowsConstrainedNetworkAccess = false
         request.timeoutInterval = Config.timeout
         request.httpMethod = "DELETE"
 
@@ -216,8 +219,6 @@ extension NightscoutAPI {
         guard let httpResponse = response as? HTTPURLResponse, (200 ... 299).contains(httpResponse.statusCode) else {
             throw URLError(.badServerResponse)
         }
-
-        debugPrint("Delete successful for ID \(id)")
     }
 
     func deleteInsulin(withId id: String) async throws {
@@ -235,7 +236,6 @@ extension NightscoutAPI {
         }
 
         var request = URLRequest(url: url)
-        request.allowsConstrainedNetworkAccess = false
         request.timeoutInterval = Config.timeout
         request.httpMethod = "DELETE"
 
@@ -274,7 +274,6 @@ extension NightscoutAPI {
         }
 
         var request = URLRequest(url: components.url!)
-        request.allowsConstrainedNetworkAccess = false
         request.timeoutInterval = Config.timeout
 
         if let secret = secret {
@@ -308,7 +307,6 @@ extension NightscoutAPI {
         }
 
         var request = URLRequest(url: requestURL)
-        request.allowsConstrainedNetworkAccess = false
         request.timeoutInterval = Config.timeout
         request.addValue("application/json", forHTTPHeaderField: "Content-Type")
 
@@ -345,7 +343,6 @@ extension NightscoutAPI {
         components.path = Config.uploadEntriesPath
 
         var request = URLRequest(url: components.url!)
-        request.allowsConstrainedNetworkAccess = false
         request.timeoutInterval = Config.timeout
         request.addValue("application/json", forHTTPHeaderField: "Content-Type")
 
@@ -381,7 +378,6 @@ extension NightscoutAPI {
         components.path = Config.statusPath
 
         var request = URLRequest(url: components.url!)
-        request.allowsConstrainedNetworkAccess = false
         request.timeoutInterval = Config.timeout
         request.addValue("application/json", forHTTPHeaderField: "Content-Type")
 
@@ -420,7 +416,6 @@ extension NightscoutAPI {
         }
 
         var request = URLRequest(url: url)
-        request.allowsConstrainedNetworkAccess = false
         request.timeoutInterval = Config.timeout
         request.addValue("application/json", forHTTPHeaderField: "Content-Type")
 
@@ -486,7 +481,6 @@ extension NightscoutAPI {
         components.path = Config.treatmentsPath
 
         var request = URLRequest(url: components.url!)
-        request.allowsConstrainedNetworkAccess = false
         request.timeoutInterval = Config.timeout
         request.addValue("application/json", forHTTPHeaderField: "Content-Type")
 
@@ -527,7 +521,6 @@ extension NightscoutAPI {
         }
 
         var request = URLRequest(url: url)
-        request.allowsConstrainedNetworkAccess = false
         request.timeoutInterval = Config.timeout
 
         if let secret = secret {

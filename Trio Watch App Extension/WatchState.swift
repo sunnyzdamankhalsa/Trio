@@ -46,6 +46,14 @@ import WatchConnectivity
     var bolusIncrement: Decimal = 0.05
     var confirmBolusFaster: Bool = false
 
+    // Forecast options
+    var showForecast: Bool = false
+    var isForecastCone: Bool = false
+    var forecastStartDate: Date?
+    var forecastConeMin: [Double] = []
+    var forecastConeMax: [Double] = []
+    var forecastLines: [String: [Double]] = [:] // "iob" / "cob" / "uam" / "zt" -> values
+
     // Acknowlegement handling
     var showCommsAnimation: Bool = false
     var showAcknowledgmentBanner: Bool = false
@@ -61,6 +69,11 @@ import WatchConnectivity
     var isMealBolusCombo: Bool = false
 
     var recommendedBolus: Decimal = 0
+
+    /// Snapshots older than this are dropped at the top of the WC delegate
+    /// methods. Single source of truth for both `didReceiveMessage` and
+    /// `didReceiveUserInfo`.
+    private static let maxAcceptableMessageAgeInMinutes: TimeInterval = 15 * 60
 
     // MARK: - Debouncing and batch processing helpers
 
@@ -180,92 +193,73 @@ import WatchConnectivity
             await WatchLogger.shared.log("⌚️ Watch received data: \(message)")
         }
 
-        // If the message has a nested "watchState" dictionary with date as TimeInterval
-        if let watchStateDict = message[WatchMessageKeys.watchState] as? [String: Any],
-           let timestamp = watchStateDict[WatchMessageKeys.date] as? TimeInterval
-        {
-            let date = Date(timeIntervalSince1970: timestamp)
-
-            // Check if it's not older than 15 min
-            if date >= Date().addingTimeInterval(-15 * 60) {
-                Task {
-                    await WatchLogger.shared.log("⌚️ Handling watchState from \(date)")
-                }
-                processWatchMessage(message)
-            } else {
-                Task {
-                    await WatchLogger.shared.log("⌚️ Received outdated watchState data (\(date))")
-                }
-                DispatchQueue.main.async {
-                    self.showSyncingAnimation = false
-                }
-            }
-            return
-        }
-
-        // Else if the message is an "ack" at the top level
-        // e.g. { "acknowledged": true, "message": "Started Temp Target...", "date": Date(...) }
-        else if
-            let acknowledged = message[WatchMessageKeys.acknowledged] as? Bool,
-            let ackMessage = message[WatchMessageKeys.message] as? String,
-            let ackCodeRaw = message[WatchMessageKeys.ackCode] as? String
+        // Ack at top level — no `watchState` wrapper, no staleness check.
+        if let acknowledged = message[WatchMessageKeys.acknowledged] as? Bool,
+           let ackMessage = message[WatchMessageKeys.message] as? String,
+           let ackCodeRaw = message[WatchMessageKeys.ackCode] as? String
         {
             Task {
                 await WatchLogger.shared
                     .log("⌚️ Handling ack with message: \(ackMessage), success: \(acknowledged), ackCode: \(ackCodeRaw)")
             }
             DispatchQueue.main.async {
-                // For ack messages, we do NOT show “Syncing...”
                 self.showSyncingAnimation = false
             }
             processWatchMessage(message)
             return
+        }
 
-                    // Recommended bolus is also not part of the WatchState message, hence the extra condition here
-        } else if
-            let recommendedBolus = message[WatchMessageKeys.recommendedBolus] as? NSNumber
-        {
+        // Recommended bolus is also not part of the WatchState message.
+        if let recommendedBolus = message[WatchMessageKeys.recommendedBolus] as? NSNumber {
             Task {
                 await WatchLogger.shared.log("⌚️ Received recommended bolus: \(recommendedBolus)")
             }
-
             DispatchQueue.main.async {
                 self.recommendedBolus = recommendedBolus.decimalValue
                 self.showBolusCalculationProgress = false
             }
-
             return
-        } else {
-            Task {
-                await WatchLogger.shared.log("⌚️ Faulty data. Skipping...")
-            }
-            DispatchQueue.main.async {
-                self.showSyncingAnimation = false
-            }
         }
+
+        handleIncomingWatchStatePayload(message)
     }
 
     func session(_: WCSession, didReceiveUserInfo userInfo: [String: Any] = [:]) {
-        guard let snapshot = WatchStateSnapshot(from: userInfo) else {
-            Task {
-                await WatchLogger.shared.log("⌚️ Invalid snapshot received", force: true)
-            }
+        handleIncomingWatchStatePayload(userInfo)
+    }
+
+    /// Shared path for watch-state payloads from either delegate method.
+    /// Enforces the freshness contract in one place so the two delivery paths
+    /// can't drift.
+    private func handleIncomingWatchStatePayload(_ dictionary: [String: Any]) {
+        guard let payload = dictionary[WatchMessageKeys.watchState] as? [String: Any],
+              let timestamp = payload[WatchMessageKeys.date] as? TimeInterval
+        else {
+            Task { await WatchLogger.shared.log("⌚️ Faulty watch state payload — skipping", force: true) }
+            DispatchQueue.main.async { self.showSyncingAnimation = false }
+            return
+        }
+        let date = Date(timeIntervalSince1970: timestamp)
+
+        // Wall-clock staleness gate. Drops the queued backlog cheaply when
+        // the watch app wakes after long disuse; without it, every payload
+        // schedules merge + UI work.
+        guard date >= Date().addingTimeInterval(-Self.maxAcceptableMessageAgeInMinutes) else {
+            Task { await WatchLogger.shared.log("⌚️ Skipping stale watch state (\(date))") }
+            DispatchQueue.main.async { self.showSyncingAnimation = false }
             return
         }
 
+        // Monotonicity dedup.
         let lastProcessed = WatchStateSnapshot.loadLatestDateFromDisk()
-
-        guard snapshot.date > lastProcessed else {
-            Task {
-                await WatchLogger.shared.log("⌚️ Ignoring outdated or duplicate WatchState snapshot", force: true)
-            }
+        guard date > lastProcessed else {
+            Task { await WatchLogger.shared.log("⌚️ Skipping duplicate watch state (\(date))") }
             return
         }
 
-        WatchStateSnapshot.saveLatestDateToDisk(snapshot.date)
-
+        WatchStateSnapshot.saveLatestDateToDisk(date)
         DispatchQueue.main.async {
-            self.scheduleUIUpdate(with: snapshot.payload)
+            self.scheduleUIUpdate(with: payload)
         }
     }
 
@@ -572,6 +566,23 @@ import WatchConnectivity
             if let booleanValue = confirmBolusFaster as? Bool {
                 self.confirmBolusFaster = booleanValue
             }
+        }
+
+        if let showForecast = message[WatchMessageKeys.showForecastWatch] as? Bool {
+            self.showForecast = showForecast
+        }
+
+        if let isForecastCone = message[WatchMessageKeys.isForecastCone] as? Bool {
+            self.isForecastCone = isForecastCone
+        }
+
+        if let forecastPayload = message[WatchMessageKeys.forecastData] as? [String: Any] {
+            if let startTimestamp = forecastPayload[WatchMessageKeys.forecastStartDate] as? TimeInterval {
+                forecastStartDate = Date(timeIntervalSince1970: startTimestamp)
+            }
+            forecastConeMin = forecastPayload[WatchMessageKeys.forecastConeMin] as? [Double] ?? []
+            forecastConeMax = forecastPayload[WatchMessageKeys.forecastConeMax] as? [Double] ?? []
+            forecastLines = forecastPayload[WatchMessageKeys.forecastLines] as? [String: [Double]] ?? [:]
         }
     }
 }

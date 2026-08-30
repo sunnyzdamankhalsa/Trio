@@ -1,13 +1,11 @@
 import Combine
 import DanaKit
-import FirebaseCrashlytics
 import Foundation
 import LoopKit
 import MedtrumKit
 import MinimedKit
 import Observation
-import OmniBLE
-import OmniKit
+import OmnipodKit
 import SwiftUI
 
 /// Model that holds the data collected during onboarding.
@@ -23,25 +21,6 @@ extension Onboarding {
         @ObservationIgnored @Injected() var apsManager: APSManager!
 
         private let settingsProvider = PickerSettingsProvider.shared
-
-        // MARK: - App Diagnostics
-
-        private var persistedDiagnosticsSharing: Bool? {
-            get { PropertyPersistentFlags.shared.diagnosticsSharingEnabled }
-            set { PropertyPersistentFlags.shared.diagnosticsSharingEnabled = newValue }
-        }
-
-        var diagnosticsSharingOption: DiagnosticsSharingOption = .enabled
-        var hasAcceptedPrivacyPolicy: Bool = false
-
-        func syncDiagnosticsOptionFromStorage() {
-            diagnosticsSharingOption = (persistedDiagnosticsSharing ?? true) ? .enabled : .disabled
-        }
-
-        func updateDiagnosticsOption(to option: DiagnosticsSharingOption) {
-            diagnosticsSharingOption = option
-            persistedDiagnosticsSharing = (option == .enabled)
-        }
 
         // MARK: - Determine Initial Build State
 
@@ -107,32 +86,20 @@ extension Onboarding {
         // MARK: - Units and Pump Omboarding Option
 
         var units: GlucoseUnits = .mgdL
-        private var selectedPumpOption: PumpOptionForOnboardingUnits?
-        var pumpOptionForOnboardingUnits: PumpOptionForOnboardingUnits {
+        private var selectedPumpOption: PumpCatalogEntry?
+        var pumpOptionForOnboardingUnits: PumpCatalogEntry {
             get {
                 // let user edit selection and return user-selection, if present
                 if let selected = selectedPumpOption {
                     return selected
                 }
 
-                let defaultOption: PumpOptionForOnboardingUnits
-                if let pumpManager = apsManager?.pumpManager {
-                    if pumpManager is OmniBLEPumpManager {
-                        defaultOption = .omnipodDash
-                    } else if pumpManager is OmnipodPumpManager {
-                        defaultOption = .omnipodEros
-                    } else if pumpManager is MedtrumPumpManager {
-                        defaultOption = .medtrum
-                    } else if pumpManager is DanaKitPumpManager {
-                        defaultOption = .dana
-                    } else if pumpManager is MinimedPumpManager {
-                        defaultOption = .minimed
-                    } else {
-                        defaultOption = .omnipodDash
-                    }
-                } else {
-                    defaultOption = .omnipodDash
-                }
+                // Users upgrading from a pre-onboarding Trio already have a pump manager, so preselect it.
+                // Matching on pluginIdentifier also picks up the legacy Omnipod identifiers, which the old
+                // downcast cascade could not.
+                let defaultOption = apsManager?.pumpManager
+                    .map { DeviceCatalog.onboardingPump(forPersistedIdentifier: $0.pluginIdentifier) }
+                    ?? DeviceCatalog.defaultOnboardingPump
 
                 // cache it so picker can stay in sync
                 selectedPumpOption = defaultOption
@@ -159,21 +126,16 @@ extension Onboarding {
         // MARK: - Basal Profile
 
         var basalRatePickerSetting: PickerSetting {
-            switch selectedPumpOption {
-            case .dana:
-                return PickerSetting(value: 0.1, step: 0.05, min: 0, max: 3, type: .insulinUnitPerHour)
-            case .minimed:
-                return PickerSetting(value: 0.1, step: 0.05, min: 0, max: 35, type: .insulinUnitPerHour)
-            case .omnipodDash:
-                return PickerSetting(value: 0.1, step: 0.05, min: 0, max: 30, type: .insulinUnitPerHour)
-            case .omnipodEros:
-                return PickerSetting(value: 0.1, step: 0.05, min: 0.05, max: 30, type: .insulinUnitPerHour)
-            case .medtrum:
-                return PickerSetting(value: 0.1, step: 0.05, min: 0.05, max: 30, type: .insulinUnitPerHour)
-            case .none:
-                // same as dash, as that is the fallback
-                return PickerSetting(value: 0.1, step: 0.05, min: 0, max: 30, type: .insulinUnitPerHour)
-            }
+            // Deliberately reads the stored value, not the getter: before the user picks anything this stays nil
+            // and falls back to the default pump's bounds, which is the pre-catalog behaviour.
+            let capability = (selectedPumpOption ?? DeviceCatalog.defaultOnboardingPump).basalCapability
+            return PickerSetting(
+                value: 0.1,
+                step: capability.step,
+                min: capability.minimum,
+                max: capability.maximum,
+                type: .insulinUnitPerHour
+            )
         }
 
         var basalProfileItems: [BasalProfileEditor.Item] = []
@@ -214,7 +176,7 @@ extension Onboarding {
         var rewindResetsAutosens: Bool = true
 
         var filteredAutosensSettingsSubsteps: [AutosensSettingsSubstep] {
-            if pumpOptionForOnboardingUnits == .minimed || pumpOptionForOnboardingUnits == .dana {
+            if pumpOptionForOnboardingUnits.reportsRewindEvents {
                 return AutosensSettingsSubstep.allCases
             } else {
                 return [AutosensSettingsSubstep.autosensMin, AutosensSettingsSubstep.autosensMax]
@@ -685,7 +647,6 @@ extension Onboarding {
 
         /// Persists all onboarding data by applying settings and saving therapy values.
         func saveOnboardingData() {
-            applyDiagnostics()
             applyToSettings()
             applyToPreferences()
             applyToPumpSettings()
@@ -693,13 +654,6 @@ extension Onboarding {
             saveBasalProfile()
             saveCarbRatios()
             saveISFValues()
-        }
-
-        /// Persists the current diagnostics sharing option to UserDefaults as a boolean.
-        func applyDiagnostics() {
-            let booleanValue = diagnosticsSharingOption == .enabled
-            PropertyPersistentFlags.shared.diagnosticsSharingEnabled = booleanValue
-            Crashlytics.crashlytics().setCrashlyticsCollectionEnabled(booleanValue)
         }
 
         /// Applies the selected glucose units to the app's settings.
@@ -716,8 +670,6 @@ extension Onboarding {
             if !isFreshTrioInstall {
                 let providedSettings = settingsProvider.settings
 
-                settingsCopy.lowGlucose = settingsCopy.lowGlucose.clamp(to: providedSettings.lowGlucose)
-                settingsCopy.highGlucose = settingsCopy.highGlucose.clamp(to: providedSettings.highGlucose)
                 settingsCopy.carbsRequiredThreshold = settingsCopy.carbsRequiredThreshold
                     .clamp(to: providedSettings.carbsRequiredThreshold)
                 settingsCopy.individualAdjustmentFactor = settingsCopy.individualAdjustmentFactor

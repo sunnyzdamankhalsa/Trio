@@ -7,9 +7,11 @@ extension AlgorithmAdvancedSettings {
         @Injected() var settings: SettingsManager!
         @Injected() var storage: FileStorage!
         @Injected() var nightscout: NightscoutManager!
+        @Injected() private var tidepoolManager: TidepoolManager!
 
         var units: GlucoseUnits = .mgdL
 
+        // settings
         @Published var maxDailySafetyMultiplier: Decimal = 3
         @Published var currentBasalSafetyMultiplier: Decimal = 4
         @Published var useCustomPeakTime: Bool = false
@@ -20,6 +22,7 @@ extension AlgorithmAdvancedSettings {
         @Published var remainingCarbsFraction: Decimal = 1.0
         @Published var remainingCarbsCap: Decimal = 90
         @Published var noisyCGMTargetMultiplier: Decimal = 1.3
+        // preference
         @Published var insulinActionCurve: Decimal = 10
         @Published var smbDeliveryRatio: Decimal = 0.5
         @Published var smbInterval: Decimal = 3
@@ -46,7 +49,8 @@ extension AlgorithmAdvancedSettings {
                 noisyCGMTargetMultiplier = $0 }
             subscribePreferencesSetting(\.smbDeliveryRatio, on: $smbDeliveryRatio) { smbDeliveryRatio = $0 }
             subscribePreferencesSetting(\.smbInterval, on: $smbInterval) { smbInterval = $0 }
-
+            subscribePreferencesSetting(\.smbDeliveryRatio, on: $smbDeliveryRatio) { smbDeliveryRatio = $0 }
+            subscribePreferencesSetting(\.smbInterval, on: $smbInterval) { smbInterval = $0 }
             insulinActionCurve = pumpSettings.insulinActionCurve
         }
 
@@ -77,6 +81,10 @@ extension AlgorithmAdvancedSettings {
                                     "\(DebuggingIdentifiers.failed) failed to upload DIA to Nightscout: \(error)"
                                 )
                             }
+                        }
+
+                        Task.detached(priority: .low) {
+                            await self.tidepoolManager.uploadSettings()
                         }
                     } receiveValue: {}
                     .store(in: &lifetime)

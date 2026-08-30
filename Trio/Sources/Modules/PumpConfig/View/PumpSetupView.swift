@@ -1,20 +1,11 @@
-import DanaKit
 import LoopKit
 import LoopKitUI
-import MedtrumKit
-import MinimedKit
-import MinimedKitUI
-import MockKit
-import MockKitUI
-import OmniBLE
-import OmniKit
-import OmniKitUI
 import SwiftUI
 import UIKit
 
 extension PumpConfig {
     struct PumpSetupView: UIViewControllerRepresentable {
-        let pumpType: PumpType
+        let pumpEntry: PumpCatalogEntry
         let pumpInitialSettings: PumpInitialSettings
         let bluetoothManager: BluetoothStateManager
         weak var completionDelegate: CompletionDelegate?
@@ -33,61 +24,15 @@ extension PumpConfig {
                 basalSchedule: pumpInitialSettings.basalSchedule
             )
 
-            switch pumpType {
-            case .minimed:
-                setupViewController = MinimedPumpManager.setupViewController(
-                    initialSettings: initialSettings,
-                    bluetoothProvider: bluetoothManager,
-                    colorPalette: .default,
-                    allowDebugFeatures: true,
-                    prefersToSkipUserInteraction: false,
-                    allowedInsulinTypes: [.apidra, .humalog, .novolog, .fiasp, .lyumjev]
-                )
-            case .omnipod:
-                setupViewController = OmnipodPumpManager.setupViewController(
-                    initialSettings: initialSettings,
-                    bluetoothProvider: bluetoothManager,
-                    colorPalette: .default,
-                    allowDebugFeatures: true,
-                    prefersToSkipUserInteraction: false,
-                    allowedInsulinTypes: [.apidra, .humalog, .novolog, .fiasp, .lyumjev]
-                )
-            case .omnipodBLE:
-                setupViewController = OmniBLEPumpManager.setupViewController(
-                    initialSettings: initialSettings,
-                    bluetoothProvider: bluetoothManager,
-                    colorPalette: .default,
-                    allowDebugFeatures: true,
-                    allowedInsulinTypes: [.apidra, .humalog, .novolog, .fiasp, .lyumjev]
-                )
-            case .dana:
-                setupViewController = DanaKitPumpManager.setupViewController(
-                    initialSettings: initialSettings,
-                    bluetoothProvider: bluetoothManager,
-                    colorPalette: .default,
-                    allowDebugFeatures: true,
-                    prefersToSkipUserInteraction: false,
-                    allowedInsulinTypes: [.apidra, .humalog, .novolog, .fiasp, .lyumjev]
-                )
-            case .medtrum:
-                setupViewController = MedtrumPumpManager.setupViewController(
-                    initialSettings: initialSettings,
-                    bluetoothProvider: bluetoothManager,
-                    colorPalette: .default,
-                    allowDebugFeatures: true,
-                    prefersToSkipUserInteraction: false,
-                    allowedInsulinTypes: [.apidra, .humalog, .novolog, .fiasp, .lyumjev]
-                )
-            case .simulator:
-                setupViewController = MockPumpManager.setupViewController(
-                    initialSettings: initialSettings,
-                    bluetoothProvider: bluetoothManager,
-                    colorPalette: .default,
-                    allowDebugFeatures: true,
-                    prefersToSkipUserInteraction: false,
-                    allowedInsulinTypes: [.apidra, .humalog, .novolog, .fiasp, .lyumjev]
-                )
-            }
+            let ManagerType = pumpEntry.manager
+            setupViewController = ManagerType.setupViewController(
+                initialSettings: initialSettings,
+                bluetoothProvider: bluetoothManager,
+                colorPalette: .default,
+                allowDebugFeatures: true,
+                prefersToSkipUserInteraction: false,
+                allowedInsulinTypes: pumpEntry.allowedInsulinTypes
+            )
 
             switch setupViewController {
             case var .userInteractionRequired(setupViewControllerUI):

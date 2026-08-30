@@ -24,7 +24,7 @@ extension Stat {
         // Cache for Meal Stats
         var hourlyMealStats: [MealStats] = []
         var dailyMealStats: [MealStats] = []
-        var dailyAveragesCache: [Date: (carbs: Double, fat: Double, protein: Double)] = [:]
+        var dailyMealTotalsCache: [Date: (carbs: Double, fat: Double, protein: Double)] = [:]
 
         // Cache for TDD Stats
         var hourlyTDDStats: [TDDStats] = []
@@ -77,12 +77,7 @@ extension Stat {
         var selectedMealChartType: MealChartType = .totalMeals
 
         // Fetching Contexts
-        let context = CoreDataStack.shared.newTaskContext()
         let viewContext = CoreDataStack.shared.persistentContainer.viewContext
-        let tddTaskContext = CoreDataStack.shared.newTaskContext()
-        let loopTaskContext = CoreDataStack.shared.newTaskContext()
-        let mealTaskContext = CoreDataStack.shared.newTaskContext()
-        let bolusTaskContext = CoreDataStack.shared.newTaskContext()
 
         override func subscribe() {
             setupGlucoseArray(for: .today)
@@ -128,6 +123,9 @@ extension Stat {
 
         private func fetchGlucose(for interval: StatsTimeIntervalWithToday) async -> [NSManagedObjectID] {
             do {
+                let context = CoreDataStack.shared.newTaskContext()
+                context.name = "StatStateModel.fetchGlucose"
+
                 let predicate: NSPredicate
 
                 switch interval {
